@@ -1,3 +1,4 @@
+import heapq
 import sys
 from collections import Counter, OrderedDict
 import itertools
@@ -7,8 +8,8 @@ import os
 import re
 from operator import itemgetter
 import nltk
-from nltk.stem.porter import *
 from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 from time import time
 from timeit import timeit
 from pathlib import Path
@@ -25,8 +26,9 @@ from numpy.linalg import norm
 
 import inverted_index_gcp
 from inverted_index_gcp import *
-import gensim
-from gensim.models import Word2Vec
+# import gensim
+# from gensim.models.keyedvectors import KeyedVectors
+
 
 nltk.download('stopwords')
 
@@ -38,6 +40,7 @@ corpus_stopwords = ["category", "references", "also", "external", "links",
 RE_WORD = re.compile(r"""[\#\@\w](['\-]?\w){2,24}""", re.UNICODE)
 
 all_stopwords = english_stopwords.union(corpus_stopwords)
+ps = PorterStemmer()
 
 TUPLE_SIZE = 6       # We're going to pack the doc_id and tf values in this
                      # many bytes.
@@ -45,6 +48,9 @@ TUPLE_SIZE = 6       # We're going to pack the doc_id and tf values in this
 
 def tokenize(text):
     return [token.group() for token in RE_WORD.finditer(text.lower()) if token not in all_stopwords]
+
+def search_tokenize(text):
+    return [(token.group(), 1) for token in RE_WORD.finditer(text.lower()) if token not in all_stopwords]
 
 def read_posting(w, index, base_dir):
     with closing(MultiFileReader()) as reader:
@@ -87,7 +93,7 @@ class SearchEngine:
         self.title_index = InvertedIndex.read_index(self.bucket_base_dir + self.title_base_dir, 'TitleIndex')
         self.body_index = InvertedIndex.read_index(self.bucket_base_dir + self.body_base_dir, 'BodyIndex')
 
-        # self.page_rank = InvertedIndex.read_index(self.bucket_base_dir, 'pr')
+
         # self.page_views_dict = InvertedIndex.read_index(self.bucket_base_dir, 'pageviews-202108-user')
         # self.id_to_tf_idf_and_length_dict = InvertedIndex.read_index(self.bucket_base_dir, 'id_to_tf_idf_and_length_dict')
         self.doc_id_to_title_dict = InvertedIndex.read_index(self.bucket_base_dir, 'id_to_title_dict')
@@ -95,53 +101,74 @@ class SearchEngine:
         self.body_DL = InvertedIndex.read_index(self.bucket_base_dir, 'DL')
         self.title_DL = InvertedIndex.read_index(self.bucket_base_dir, 'DL_title')
 
-        # model = gensim.models.KeyedVectors.load_word2vec_format(f"{project_path}/Model/Word2VecWiki.bin", binary=True)
-        self.model = Word2Vec.load_word2vec_format(self.bucket_base_dir + 'wiki.en.bin', binary=True, norm_only=True)
+        # self.model = KeyedVectors.load_word2vec_format(self.bucket_base_dir + '/model_wiki.bin', binary=True)
 
-    def generate_query(self, query, N=10):
-        words_to_search = [token for token in query]  # list that holding the updated query
-        for token in query:
-            try:
-                similar_words = self.model.most_similar([token], topn=N)  # get the top `n` similar words of specific token in query
-                for word, cos_sim in similar_words:
-                    if cos_sim < 0.5:
-                        break
-                    words_to_search.append(word)
-            except Exception:
-                pass
-
-        return words_to_search
+    # def query_expansion_word2Vec(self, query, N=3):
+    #     try:
+    #         similar_words = self.model.most_similar(query, topn=N)
+    #         for word, cos_sim in similar_words:
+    #             if cos_sim < 0.75:
+    #                 break
+    #             query.append(word)
+    #     except Exception:
+    #         pass
+    #
+    #     return np.unique(query)
 
     def search(self, query, N=100):
         tokenized_query = tokenize(query)
-        bm25_body = BM25(self.body_index, self.body_DL, self.bucket_base_dir + self.body_base_dir)
-        bm25_title = BM25(self.title_index, self.title_DL, self.bucket_base_dir + self.title_base_dir)
-        new_query_body = remove_words_not_in_corpus(tokenized_query, self.body_index)
-        new_query_title = remove_words_not_in_corpus(tokenized_query, self.title_index)
 
-        generated_query_body = self.generate_query(new_query_body, 5)
-        generated_query_title = self.generate_query(new_query_title, 5)
+        # Body Scores
+        bm25_body = BM25(self.body_index, self.body_DL, self.bucket_base_dir + self.body_base_dir, 1.7, 0.25)
+        body_bm25_scores = bm25_body.search(tokenized_query, 200)
 
-        body_bm25_scores = bm25_body.search(generated_query_body)
-        title_bm25_scores = bm25_title.search(generated_query_title)
+        # Title Scores
+        bm25_title = BM25(self.title_index, self.title_DL, self.bucket_base_dir + self.title_base_dir, 1.8, 0.4)
+        title_bm25_scores = bm25_title.search(tokenized_query, 200)
 
-        merged_scores = self.merge_results(title_bm25_scores, body_bm25_scores)
+        # Merge Scores
+        # merged_scores_original_query = self.merge_results(title_bm25_scores, body_bm25_scores, 0.65, 0.35)
+        merged_scores = self.merge_results(title_bm25_scores, body_bm25_scores, 0.5, 0.5)
 
-        return [(doc_id, self.doc_id_to_title_dict[doc_id]) for doc_id, score in merged_scores if doc_id in self.doc_id_to_title_dict]
+        # Query expansion
+        # if (len(tokenized_query) < 3):
+        #     expanded_query = self.query_expansion_word2Vec(tokenized_query, 2)
+        #     new_query_body = remove_words_not_in_corpus(expanded_query, self.body_index)
+        #     body_bm25_scores_expanded = bm25_body.search(new_query_body, 300)
+        #     merged_scores = self.merge_results(merged_scores_original_query, body_bm25_scores_expanded, 0.5, 0.5)
+        #
+        # else:
+        #     merged_scores = merged_scores_original_query
 
-    def merge_results(self, title_scores, body_scores, title_weight=0.5, body_weight=0.5, N=100):
+
+        # new_query_title = remove_words_not_in_corpus(tokenized_query, self.title_index)
+        #
+        # return sorted(body_bm25_scores.items(), key=lambda x: x[1], reverse=True)[:N]
+
+
+        # docs_counter_for_title = count_words_in_docs(new_query_title, self.title_index, self.bucket_base_dir + self.title_base_dir)
+        # for doc_id in docs_counter_for_title.keys():
+        #     docs_counter_for_title[doc_id] = (docs_counter_for_title[doc_id]) / (len(self.doc_id_to_title_dict[doc_id].split()))
+
+        # merged_scores_expanded_query = self.merge_results_dict(title_bm25_scores, title_bm25_scores_expanded, 0.5, 0.5)
+
+        # return [(doc_id, self.doc_id_to_title_dict[doc_id], score) for doc_id, score in merged_scores if doc_id in self.doc_id_to_title_dict]
+
+        return [(doc_id, self.doc_id_to_title_dict[doc_id]) for doc_id, score in merged_scores if doc_id in self.doc_id_to_title_dict][:N]
+
+    def merge_results(self, title_scores, body_scores, title_weight=0.5, body_weight=0.5):
         merged_scores = defaultdict()
 
-        for title_doc_id, title_score in title_scores.items():
+        for title_doc_id, title_score in title_scores:
             merged_scores[title_doc_id] = title_weight * title_score
 
-        for body_doc_id, body_score in body_scores.items():
+        for body_doc_id, body_score in body_scores:
             if body_doc_id in merged_scores:
                 merged_scores[body_doc_id] += body_weight * body_score
             else:
                 merged_scores[body_doc_id] = body_weight * body_score
 
-        return sorted(merged_scores.items(), key=lambda x: x[1], reverse=True)[:N]
+        return sorted(merged_scores.items(), key=lambda x: x[1], reverse=True)
 
     def search_title(self, query):
         tokenized_query = tokenize(query)
@@ -230,25 +257,24 @@ class BM25:
 
     def calc_idf(self, list_of_tokens):
         idf = {}
-        for term in list_of_tokens:
-            n_ti = self.index.df[term]
-            idf[term] = math.log(1 + (self.N - n_ti + 0.5) / (n_ti + 0.5))
+        for token in list_of_tokens:
+            n_ti = self.index.df[token]
+            idf[token] = math.log(1 + (self.N - n_ti + 0.5) / (n_ti + 0.5))
 
         return idf
 
-    def search(self, query):
-        unique_terms = np.unique(query)
-        idf = self.calc_idf(unique_terms)
+    def search(self, query, num_of_docs_to_return):
+        idf = self.calc_idf(query)
 
         scores = {}
-        for term in unique_terms:
-            postings = read_posting(term, self.index, self.base_dir)
+        for token in query:
+            postings = read_posting(token, self.index, self.base_dir)
             for doc_id, tf in postings:
-                scores[doc_id] = scores.get(doc_id, 0) + self._score(term, doc_id, tf, idf)
+                scores[doc_id] = scores.get(doc_id, 0) + self._score(token, doc_id, tf, idf)
 
-        return scores
+        return heapq.nlargest(num_of_docs_to_return, [(doc_id,score) for doc_id, score in scores.items()], key=lambda x: x[1])
 
-    def _score(self, term, doc_id, doc_tf, idf):
-        numerator = idf[term] * doc_tf * (self.k1 + 1)
+    def _score(self, token, doc_id, doc_tf, idf):
+        numerator = idf[token] * doc_tf * (self.k1 + 1)
         denominator = doc_tf + self.k1 * (1 - self.b + self.b * self.DL[doc_id] / self.AVGDL)
         return (numerator / denominator)
