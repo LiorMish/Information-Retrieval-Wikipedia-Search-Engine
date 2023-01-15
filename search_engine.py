@@ -47,13 +47,17 @@ TUPLE_SIZE = 6       # We're going to pack the doc_id and tf values in this
 
 
 def tokenize(text):
-    '''Get text as String, tokenize the words and remove stop words.
-    Return list of tokens.'''
+    '''
+    Get text as String, tokenize the words and remove stop words.
+    Return list of tokens.
+    '''
     return [token.group() for token in RE_WORD.finditer(text.lower()) if token not in all_stopwords]
 
 def read_posting(w, index, base_dir):
-    '''Find and return a posting list of all the documents having the word - "w"
-    from the given index.'''
+    '''
+    Find and return a posting list of all the documents having the word - "w"
+    from the given index.
+    '''
     with closing(MultiFileReader()) as reader:
         posting_list = []
         if w in index.posting_locs:
@@ -66,9 +70,11 @@ def read_posting(w, index, base_dir):
     return posting_list
 
 def count_words_in_docs(query, index, base_dir):
-    '''Method that get a query and an index and counts for each document,
+    '''
+    Method that get a query and an index and counts for each document,
     how many words in the query are matching with him.
-    We are using this method for the binary search (search_anchor and search_title).'''
+    We are using this method for the binary search (search_anchor and search_title).
+    '''
     docs_counter = Counter()
     for token in np.unique(query):
         posting_list = read_posting(token, index, base_dir)
@@ -78,8 +84,10 @@ def count_words_in_docs(query, index, base_dir):
     return docs_counter
 
 def remove_words_not_in_corpus(tokenized_query, index):
-    '''Helper method for the query expansion we used with W2V
-    to remove all the tokens than are not in the dictionary of the index.'''
+    '''
+    Helper method for the query expansion we used with W2V
+    to remove all the tokens than are not in the dictionary of the index.
+    '''
     new_query = []
     for token in tokenized_query:
         if token in index.df.keys():
@@ -113,8 +121,10 @@ class SearchEngine:
         # self.model = KeyedVectors.load_word2vec_format(self.bucket_base_dir + '/model_wiki.bin', binary=True)
 
     def query_expansion_word2Vec(self, query, N=3):
-        '''Method to get a query expansion using Word2Vec model.
-        We want to return only the N most similar words to our query.'''
+        '''
+        Method to get a query expansion using Word2Vec model.
+        We want to return only the N most similar words to our query.
+        '''
         try:
             similar_words = self.model.most_similar(query, topn=N)
             for word, cos_sim in similar_words:
@@ -127,6 +137,10 @@ class SearchEngine:
         return np.unique(query)
 
     def search(self, query, N=100):
+        '''
+        Main search method to find the best 100 document results from the whole corpus.
+        In this method we are using BM25 similarity measure on the title and body indices and merging them.
+        '''
         tokenized_query = tokenize(query)
 
         # Body Scores
@@ -151,23 +165,12 @@ class SearchEngine:
         # else:
         #     merged_scores = merged_scores_original_query
 
-
-        # new_query_title = remove_words_not_in_corpus(tokenized_query, self.title_index)
-        #
-        # return sorted(body_bm25_scores.items(), key=lambda x: x[1], reverse=True)[:N]
-
-
-        # docs_counter_for_title = count_words_in_docs(new_query_title, self.title_index, self.bucket_base_dir + self.title_base_dir)
-        # for doc_id in docs_counter_for_title.keys():
-        #     docs_counter_for_title[doc_id] = (docs_counter_for_title[doc_id]) / (len(self.doc_id_to_title_dict[doc_id].split()))
-
-        # merged_scores_expanded_query = self.merge_results_dict(title_bm25_scores, title_bm25_scores_expanded, 0.5, 0.5)
-
-        # return [(doc_id, self.doc_id_to_title_dict[doc_id], score) for doc_id, score in merged_scores if doc_id in self.doc_id_to_title_dict]
-
         return [(doc_id, self.doc_id_to_title_dict[doc_id]) for doc_id, score in merged_scores if doc_id in self.doc_id_to_title_dict][:N]
 
     def merge_results(self, title_scores, body_scores, title_weight=0.5, body_weight=0.5):
+        '''
+        This function merge and sort documents retrieved by its weight score (title and body).
+        '''
         merged_scores = defaultdict()
 
         for title_doc_id, title_score in title_scores:
@@ -182,17 +185,32 @@ class SearchEngine:
         return sorted(merged_scores.items(), key=lambda x: x[1], reverse=True)
 
     def search_title(self, query):
+        '''
+        Returns ALL (not just top 100) search results that contain A QUERY WORD
+        IN THE TITLE of articles, ordered in descending order of the NUMBER OF
+        QUERY WORDS that appear in the title.
+        '''
         tokenized_query = tokenize(query)
         docs_counter = count_words_in_docs(tokenized_query, self.title_index, self.bucket_base_dir + self.title_base_dir)
         return [(doc_id, self.doc_id_to_title_dict[doc_id]) for doc_id, freq in docs_counter.most_common()]
 
     def search_anchor(self, query):
+        '''
+        Returns ALL (not just top 100) search results that contain A QUERY WORD
+        IN THE ANCHOR TEXT of articles, ordered in descending order of the
+        NUMBER OF QUERY WORDS that appear in anchor text linking to the page.
+        '''
         anchor_index = InvertedIndex.read_index(self.bucket_base_dir + self.anchor_base_dir, 'AnchorIndex')
         tokenized_query = tokenize(query)
         docs_counter = count_words_in_docs(tokenized_query, anchor_index, self.bucket_base_dir + self.anchor_base_dir)
         return [(doc_id, self.doc_id_to_title_dict[doc_id]) for doc_id, freq in docs_counter.most_common() if doc_id in self.doc_id_to_title_dict]
 
     def calculate_tf_idf(self, tokenized_query, id_to_tf_idf_and_length_dict):
+        '''
+        This method calculates the TF-IDF for each document and for the query itself.
+        Returns query-TF-IDF, documents-TF-IDF and the normal vector of the query.
+        We are using the read_posting function to find only the documents that relevant for the query.
+        '''
         query_counter = Counter(tokenized_query)
         epsilon = .0000001
 
@@ -219,9 +237,13 @@ class SearchEngine:
 
         return query_tfidf, document_tfidf, query_norm
 
-    def calculate_docs_query_similarity(self, query_tfidf, document_tfidf, query_norm, id_to_tf_idf_and_length_dict):
+    def calculate_docs_query_similarity(self, query_tfidf, documents_tfidf, query_norm, id_to_tf_idf_and_length_dict):
+        '''
+        Method to calculate the cosine similarity between a query and a document
+        for every document in the dictionary (documents_tfidf).
+        '''
         docs_cosine_similarity = {}
-        for doc_id, tokens_tfidf in document_tfidf.items():
+        for doc_id, tokens_tfidf in documents_tfidf.items():
             numerator = 0
             docs_cosine_similarity[doc_id] = 0
             for token, tfidf in tokens_tfidf:
@@ -233,14 +255,21 @@ class SearchEngine:
         return docs_cosine_similarity
 
     def search_body(self, query, N=100):
+        '''
+        Returns up to a 100 search results for the query using TFIDF AND COSINE
+        SIMILARITY OF THE BODY OF ARTICLES ONLY.
+        '''
         id_to_tf_idf_and_length_dict = InvertedIndex.read_index(self.bucket_base_dir, 'id_to_tf_idf_and_length_dict')
         tokenized_query = tokenize(query)
-        query_tfidf, document_tfidf, query_norm = self.calculate_tf_idf(tokenized_query, id_to_tf_idf_and_length_dict)
-        docs_cosine_similarity = self.calculate_docs_query_similarity(query_tfidf, document_tfidf, query_norm, id_to_tf_idf_and_length_dict)
+        query_tfidf, documents_tfidf, query_norm = self.calculate_tf_idf(tokenized_query, id_to_tf_idf_and_length_dict)
+        docs_cosine_similarity = self.calculate_docs_query_similarity(query_tfidf, documents_tfidf, query_norm, id_to_tf_idf_and_length_dict)
 
         return [(doc_id, self.doc_id_to_title_dict[doc_id]) for doc_id, similarity in sorted(docs_cosine_similarity.items(), key=lambda item: item[1], reverse=True) if doc_id in self.doc_id_to_title_dict][:N]
 
     def get_page_rank(self, list_of_doc_ids):
+        '''
+        Returns PageRank values for a list of provided wiki article IDs.
+        '''
         page_rank = InvertedIndex.read_index(self.bucket_base_dir, 'pr')
         page_ranks_list = []
         for doc_id in list_of_doc_ids:
@@ -249,6 +278,10 @@ class SearchEngine:
         return page_ranks_list
 
     def get_page_views(self, list_of_doc_ids):
+        '''
+        Returns the number of page views that each of the provide wiki articles
+        had in August 2021.
+        '''
         page_views_dict = InvertedIndex.read_index(self.bucket_base_dir, 'pageviews-202108-user')
         page_views_list = []
         for doc_id in list_of_doc_ids:
@@ -256,8 +289,15 @@ class SearchEngine:
                 page_views_list.append(page_views_dict[doc_id])
         return page_views_list
 
+'''
+This class created to calculate the similarity between queries and documents using BM25.
+'''
 class BM25:
     def __init__(self, index, DL, base_dir, k1=1.5, b=0.75):
+        '''
+        Init all relevant objects we need to calculate the similarity.
+        Including the index and the length of each doc inside him.
+        '''
         self.base_dir = base_dir
         self.b = b
         self.k1 = k1
@@ -267,6 +307,9 @@ class BM25:
         self.DL = DL
 
     def calc_idf(self, list_of_tokens):
+        '''
+        This function calculate the idf values according to the BM25 idf formula for each term in the query.
+        '''
         idf = {}
         for token in list_of_tokens:
             n_ti = self.index.df[token]
@@ -275,6 +318,10 @@ class BM25:
         return idf
 
     def search(self, query, num_of_docs_to_return):
+        '''
+        This function calculate the bm25 score for given query and document.
+        Return the top scored documents (num_of_docs_to_return) and their score.
+        '''
         idf = self.calc_idf(query)
 
         scores = {}
@@ -286,6 +333,10 @@ class BM25:
         return heapq.nlargest(num_of_docs_to_return, [(doc_id,score) for doc_id, score in scores.items()], key=lambda x: x[1])
 
     def _score(self, token, doc_id, doc_tf, idf):
+        '''
+        This function calculate the bm25 score for given token and document.
+        We will use this method for every token in the query and every relevant document.
+        '''
         numerator = idf[token] * doc_tf * (self.k1 + 1)
         denominator = doc_tf + self.k1 * (1 - self.b + self.b * self.DL[doc_id] / self.AVGDL)
         return (numerator / denominator)
