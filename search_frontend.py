@@ -90,6 +90,7 @@ def search_title():
     # END SOLUTION
     return jsonify(res)
 
+
 @app.route("/search_anchor")
 def search_anchor():
     ''' Returns ALL (not just top 100) search results that contain A QUERY WORD
