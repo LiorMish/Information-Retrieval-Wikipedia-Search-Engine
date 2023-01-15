@@ -47,12 +47,13 @@ TUPLE_SIZE = 6       # We're going to pack the doc_id and tf values in this
 
 
 def tokenize(text):
+    '''Get text as String, tokenize the words and remove stop words.
+    Return list of tokens.'''
     return [token.group() for token in RE_WORD.finditer(text.lower()) if token not in all_stopwords]
 
-def search_tokenize(text):
-    return [(token.group(), 1) for token in RE_WORD.finditer(text.lower()) if token not in all_stopwords]
-
 def read_posting(w, index, base_dir):
+    '''Find and return a posting list of all the documents having the word - "w"
+    from the given index.'''
     with closing(MultiFileReader()) as reader:
         posting_list = []
         if w in index.posting_locs:
@@ -65,15 +66,20 @@ def read_posting(w, index, base_dir):
     return posting_list
 
 def count_words_in_docs(query, index, base_dir):
-  docs_counter = Counter()
-  for token in np.unique(query):
-      posting_list = read_posting(token, index, base_dir)
-      for doc in posting_list:
-          docs_counter[doc[0]] = docs_counter.get(doc[0], 0) + 1
+    '''Method that get a query and an index and counts for each document,
+    how many words in the query are matching with him.
+    We are using this method for the binary search (search_anchor and search_title).'''
+    docs_counter = Counter()
+    for token in np.unique(query):
+        posting_list = read_posting(token, index, base_dir)
+        for doc in posting_list:
+            docs_counter[doc[0]] = docs_counter.get(doc[0], 0) + 1
 
-  return docs_counter
+    return docs_counter
 
 def remove_words_not_in_corpus(tokenized_query, index):
+    '''Helper method for the query expansion we used with W2V
+    to remove all the tokens than are not in the dictionary of the index.'''
     new_query = []
     for token in tokenized_query:
         if token in index.df.keys():
@@ -84,6 +90,10 @@ def remove_words_not_in_corpus(tokenized_query, index):
 class SearchEngine:
 
     def __init__(self):
+        '''Init function to create all the objects we need for our search engine.
+        The objects marked with comments are initialized inside the relevant functions
+        to reduce the ram memory at runtime.'''
+
         self.anchor_base_dir = '/anchor_index'
         self.title_base_dir = '/title_index'
         self.body_base_dir = '/body_index'
@@ -92,7 +102,6 @@ class SearchEngine:
         # self.anchor_index = InvertedIndex.read_index(self.bucket_base_dir + self.anchor_base_dir, 'AnchorIndex')
         self.title_index = InvertedIndex.read_index(self.bucket_base_dir + self.title_base_dir, 'TitleIndex')
         self.body_index = InvertedIndex.read_index(self.bucket_base_dir + self.body_base_dir, 'BodyIndex')
-
 
         # self.page_views_dict = InvertedIndex.read_index(self.bucket_base_dir, 'pageviews-202108-user')
         # self.id_to_tf_idf_and_length_dict = InvertedIndex.read_index(self.bucket_base_dir, 'id_to_tf_idf_and_length_dict')
@@ -103,17 +112,19 @@ class SearchEngine:
 
         # self.model = KeyedVectors.load_word2vec_format(self.bucket_base_dir + '/model_wiki.bin', binary=True)
 
-    # def query_expansion_word2Vec(self, query, N=3):
-    #     try:
-    #         similar_words = self.model.most_similar(query, topn=N)
-    #         for word, cos_sim in similar_words:
-    #             if cos_sim < 0.75:
-    #                 break
-    #             query.append(word)
-    #     except Exception:
-    #         pass
-    #
-    #     return np.unique(query)
+    def query_expansion_word2Vec(self, query, N=3):
+        '''Method to get a query expansion using Word2Vec model.
+        We want to return only the N most similar words to our query.'''
+        try:
+            similar_words = self.model.most_similar(query, topn=N)
+            for word, cos_sim in similar_words:
+                if cos_sim < 0.75:
+                    break
+                query.append(word)
+        except Exception:
+            pass
+
+        return np.unique(query)
 
     def search(self, query, N=100):
         tokenized_query = tokenize(query)
