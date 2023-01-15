@@ -87,7 +87,7 @@ class SearchEngine:
         self.anchor_base_dir = '/anchor_index'
         self.title_base_dir = '/title_index'
         self.body_base_dir = '/body_index'
-        self.bucket_base_dir = '/home/mishutin/314968306_index'
+        self.bucket_base_dir = '/home/baronno/314968306_index'
 
         # self.anchor_index = InvertedIndex.read_index(self.bucket_base_dir + self.anchor_base_dir, 'AnchorIndex')
         self.title_index = InvertedIndex.read_index(self.bucket_base_dir + self.title_base_dir, 'TitleIndex')
@@ -103,17 +103,17 @@ class SearchEngine:
 
         # self.model = KeyedVectors.load_word2vec_format(self.bucket_base_dir + '/model_wiki.bin', binary=True)
 
-    # def query_expansion_word2Vec(self, query, N=3):
-    #     try:
-    #         similar_words = self.model.most_similar(query, topn=N)
-    #         for word, cos_sim in similar_words:
-    #             if cos_sim < 0.75:
-    #                 break
-    #             query.append(word)
-    #     except Exception:
-    #         pass
-    #
-    #     return np.unique(query)
+    def query_expansion_word2Vec(self, query, N=3):
+        try:
+            similar_words = self.model.most_similar(query, topn=N)
+            for word, cos_sim in similar_words:
+                if cos_sim < 0.75:
+                    break
+                query.append(word)
+        except Exception:
+            pass
+
+        return np.unique(query)
 
     def search(self, query, N=100):
         tokenized_query = tokenize(query)
@@ -131,14 +131,14 @@ class SearchEngine:
         merged_scores = self.merge_results(title_bm25_scores, body_bm25_scores, 0.5, 0.5)
 
         # Query expansion
-        # if (len(tokenized_query) < 3):
-        #     expanded_query = self.query_expansion_word2Vec(tokenized_query, 2)
-        #     new_query_body = remove_words_not_in_corpus(expanded_query, self.body_index)
-        #     body_bm25_scores_expanded = bm25_body.search(new_query_body, 300)
-        #     merged_scores = self.merge_results(merged_scores_original_query, body_bm25_scores_expanded, 0.5, 0.5)
-        #
-        # else:
-        #     merged_scores = merged_scores_original_query
+        if (len(tokenized_query) < 3):
+            expanded_query = self.query_expansion_word2Vec(tokenized_query, 3)
+            new_query_body = remove_words_not_in_corpus(expanded_query, self.body_index)
+            body_bm25_scores_expanded = bm25_body.search(new_query_body, 300)
+            merged_scores = self.merge_results(merged_scores, body_bm25_scores_expanded, 0.5, 0.5)
+
+        else:
+            merged_scores = merged_scores
 
 
         # new_query_title = remove_words_not_in_corpus(tokenized_query, self.title_index)
@@ -246,7 +246,7 @@ class SearchEngine:
         return page_views_list
 
 class BM25:
-    def __init__(self, index, DL, base_dir, k1=1.5, b=0.75):
+    def __init__(self, index, DL, base_dir, k1=1.5, b=0.5):
         self.base_dir = base_dir
         self.b = b
         self.k1 = k1
