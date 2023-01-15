@@ -18,3 +18,9 @@ Returns all search results that contain a query word in the title of articles, o
 
 # Search anchor:
 Returns all search results that contain a query word in the anchor text of articles, ordered in descending order of the number of query words that appear in the text linking to the page. For example, a document with an anchor text that matches two of the query words will be ranked before a document with anchor text that matches only one query term.
+
+# Get page_rank:
+Returns PageRank values for a list of provided wiki article IDs.
+
+# Get page_view:
+Returns the number of page views that each of the provide wiki articles had in August 2021.
