@@ -153,7 +153,7 @@ class SearchEngine:
 
         # Merge Scores
         # merged_scores_original_query = self.merge_results(title_bm25_scores, body_bm25_scores, 0.65, 0.35)
-        merged_scores = self.merge_results(title_bm25_scores, body_bm25_scores, 0.5, 0.5)
+        merged_scores = self.merge_results(title_bm25_scores, body_bm25_scores, 0.67, 0.33)
 
         # Query expansion
         # if (len(tokenized_query) < 3):
