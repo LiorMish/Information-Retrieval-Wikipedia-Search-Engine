@@ -144,7 +144,7 @@ class SearchEngine:
         tokenized_query = tokenize(query)
 
         # Body Scores
-        bm25_body = BM25(self.body_index, self.body_DL, self.bucket_base_dir + self.body_base_dir, 1.7, 0.25)
+        bm25_body = BM25(self.body_index, self.body_DL, self.bucket_base_dir + self.body_base_dir, 1.7, 0.3)
         body_bm25_scores = bm25_body.search(tokenized_query, 200)
 
         # Title Scores
