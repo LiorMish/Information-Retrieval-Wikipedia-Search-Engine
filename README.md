@@ -1,12 +1,9 @@
-# information_retrieval - Search Engine
+# Information Retrieval - Search Engine
 In this project we build a search engine for the entire english Wikipedia corpus.
 All the search functions described in the search_frontend.py file.
 The backend of the whole process is in search_engine.py file.
 
-
-
 # Main functions:
-
 
 # Search:
 This is the main search function that returns up to a 100 of our best search results for the query.
